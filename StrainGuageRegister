@@ -1,0 +1,248 @@
+/**
+ * This program has been partially adapted from a tutorial available at http://dsscircuits.com/articles/arduino-i2c-slave-guide
+ */
+#include<Wire.h>
+
+/**
+ * The register is set up as follows
+ * 0x00 = status register (used to prevent external interrupts) (0x01 if reading data, 0x00 if not reading data)
+ * 0x01 -> 0x04 = A0 register (register for strain0)
+ * 0x05 -> 0x08 = A1 register (register for strain1)
+ * 0x09 -> 0x0C = A2 register (register for strain2)
+ * 0x0D -> 0x10 = A3 register (register for strain3)
+ * 0x10 -> 0x14 = A4 register (register for strain4)
+ * 0x15 -> 0x18 = A5 register (register for strain5)
+ * 0x19 -> 0x1C = A6 register (register for strain6)
+ * 0x1D -> 0x20 = A7 register (register for strain7)
+ * 0x21 = command register (used for commands from master) (0x01 to stop datacollection, any other number to keep data collection)
+ * 0x22 = identification register (the unique identifier of this slave)
+ */
+
+ //Definitions
+#define SLAVE_ADDRESS 0x29 //The slave address (0x01 -> 0x7F)
+#define REGISTER_SIZE 35 //The size of the register
+#define MAXIMUM_BYTES_SENT 2 //The maximum number of bytes sent from the master to the slave
+#define INTERRUPT_PIN 2
+#define IDENTIFICATION 0x0D //the identification number of this device
+#define DEFAULT_RECEIVED_COMMAND_VALUE 0x00
+
+//register stuff
+byte registerMap[REGISTER_SIZE]; //the register map for this microcontroller
+byte registerMapBuffer[REGISTER_SIZE - 1]; //the register map buffer for this microcontroller
+byte receivedCommands[MAXIMUM_BYTES_SENT]; //the commands received from the master
+
+//control variables
+byte arrayIndex = 1; //the array index used to write bytes
+byte zero9Data; //the data represented in the 0x09 register
+
+//Strain measurements
+unsigned int strain0 = 0; //for A1
+unsigned int strain1 = 0; //for A2
+unsigned int strain2 = 0; //for A3
+unsigned int strain3 = 0; //for A4
+unsigned int strain4 = 0; //for A5
+unsigned int strain5 = 0; //for A6
+unsigned int strain6 = 0; //for A7
+unsigned int strain7 = 0; //for A8
+
+//flag variables
+byte useInterrupt = 1;
+byte zero9 = 0; //a data value representing whether command data exists in 0x09
+byte newData = 0;
+
+/**
+ * Setup method which is called prior to program execution
+ */
+void setup() {
+  //if we are using interrupt, setup the interrupt things
+  if (useInterrupt)
+  {
+    pinMode(INTERRUPT_PIN, OUTPUT);
+    digitalWrite(INTERRUPT_PIN, HIGH);
+  }
+  //sets reference voltage to that applied to AREF pin
+  analogReference(EXTERNAL);
+  
+  //set pinmodes
+  pinMode(A0, INPUT);
+  pinMode(A1, INPUT);
+  pinMode(A2, INPUT);
+  pinMode(A3, INPUT);
+  pinMode(A4, INPUT);
+  pinMode(A5, INPUT);
+  pinMode(A6, INPUT);
+  pinMode(A7, INPUT);
+  
+  //Begin wire transmission
+  Serial.begin(9600);
+  //setup i2c interface
+  Wire.begin(SLAVE_ADDRESS);
+  Wire.onRequest(requestEvent);
+  Wire.onReceive(receiveEvent);
+  //set identifier 
+  registerMap[34] = IDENTIFICATION;
+  registerMapBuffer[0] = 0x01;
+}
+
+/**
+ * Determines if an interrupt could occur, if so write to pin
+ */
+void toggleInterrupt()
+{
+  if (!useInterrupt)
+  {
+    return; //no sense in wasting time on this function if interrupt isnt being used. 
+  }
+  if (newData)
+  {
+    //writes a low signal to the interrupt pin if data is new and about to be transmitted
+    digitalWrite(INTERRUPT_PIN, LOW);
+    return;
+  }
+
+  digitalWrite(INTERRUPT_PIN, HIGH);
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  //only take data if 0x09 contains any number other than 0x01
+  if (zero9Data != 0x01)
+  {
+    registerMapBuffer[0] = 0x01;
+    //store data from analog pins into the strain variables
+    strain0 = analogRead(A0);
+    strain1 = analogRead(A1);
+    strain2 = analogRead(A2);
+    strain3 = analogRead(A3);
+    strain4 = analogRead(A4);
+    strain5 = analogRead(A5);
+    strain6 = analogRead(A6);
+    strain7 = analogRead(A7); 
+    //call storeData() in order to update the registerMapBuffer
+    //set the flag that we have new data
+    newData = 1;
+  }
+  else
+  {
+    //set to 1 if data is not being read
+    registerMapBuffer[0] = 0x00;
+  }
+  storeData();
+  toggleInterrupt();
+
+  
+}
+/**
+ * function responsible for storing data in the 
+ * register map buffer
+ */
+void storeData()
+{
+  //time to store info in bytes (4 bytes per integer)
+  byte* pointer;
+
+  //make sure arrayIndex is set to 1
+  arrayIndex = 1;
+  
+  reverseStoreBytes(strain0);
+  reverseStoreBytes(strain1);
+  reverseStoreBytes(strain2);
+  reverseStoreBytes(strain3);
+  reverseStoreBytes(strain4);
+  reverseStoreBytes(strain5);
+  reverseStoreBytes(strain6);
+  reverseStoreBytes(strain7);
+
+  //once done, set arrayIndex to 1
+  Serial.println(strain0);
+  Serial.println(registerMapBuffer[1]);
+  Serial.println(registerMapBuffer[2]);
+  Serial.println(registerMapBuffer[3]);
+  Serial.println(registerMapBuffer[4]);
+  arrayIndex = 1;
+}
+
+/**
+ * stores the bytes into the correct spot in the register
+ * map buffer. Stores the bytes in reverse order because
+ * that is industry standard for some reason 
+ */
+void reverseStoreBytes(unsigned int data)
+{
+  //store integers into 4 bytes in the register (reverse order)
+  byte* pointer;
+  pointer = (byte*)&data;
+  for(int i = 3; i > -1; i--)
+  {
+    registerMapBuffer[arrayIndex] = pointer[i];
+    arrayIndex++;
+  }
+}
+
+/**
+ * Called when the master requests data from this slave. 
+ * Determines master's command and responds accordingly. 
+ */
+ void requestEvent()
+{
+  //data must exist to populate the register map
+  if (newData)
+  {
+    //populate with new data
+    for (int i = 1; i < REGISTER_SIZE - 1; i ++)
+    {
+      //set register map data to the register buffer data
+      registerMap[i] = registerMapBuffer[i];
+    }
+  }
+  newData = 0;
+  toggleInterrupt(); 
+  //the receivedCommands[0] is a offset value for getting data from specific register
+  //send entire 35 byte register even though may only request data from one. It is up to the
+  //master to determine what is and isn't useful data from the register. 
+  Wire.send(registerMap + receivedCommands[0], REGISTER_SIZE);
+}
+
+//Called when the master sends data to the slave
+void receiveEvent(int byteData)
+{
+  for(int i = 0; i < byteData; i++)
+  {
+
+    //populate the receivedCommands array with data
+    if (i < MAXIMUM_BYTES_SENT)
+    {
+      receivedCommands[i] = Wire.receive();
+    }
+    else
+    {
+      //throw away excess data
+      Wire.receive();
+    }
+  }
+  //if a byte was received, check to see if the command received is referencing
+  // a location in the register. if so, return because there it is an address 
+  //to be referenced later
+  if (byteData == 1 && (receivedCommands[0] < REGISTER_SIZE))
+  {
+    return;
+  }
+  //if a byte was received and it is not a command, return a default value as 
+  // to not send back random data
+  if (byteData == 1 && (receivedCommands[0] >= REGISTER_SIZE))
+  {
+    receivedCommands[0] = DEFAULT_RECEIVED_COMMAND_VALUE;
+    return;
+  }
+
+  //check if the command is sent to register 0x09
+  if (receivedCommands[0] == 0x09)
+  {
+    zero9 = 1; //set flag that data is in register 0x09
+    zero9Data = receivedCommands[1];
+  }
+  else
+  {
+    return;
+  }
+}
