@@ -6,21 +6,21 @@
 /**
  * The register is set up as follows
  * 0x00 = status register (used to prevent external interrupts) (0x01 if reading data, 0x00 if not reading data)
- * 0x01 -> 0x04 = A0 register (register for strain0)
- * 0x05 -> 0x08 = A1 register (register for strain1)
- * 0x09 -> 0x0C = A2 register (register for strain2)
- * 0x0D -> 0x10 = A3 register (register for strain3)
- * 0x10 -> 0x14 = A4 register (register for strain4)
- * 0x15 -> 0x18 = A5 register (register for strain5)
- * 0x19 -> 0x1C = A6 register (register for strain6)
- * 0x1D -> 0x20 = A7 register (register for strain7)
- * 0x21 = command register (used for commands from master) (0x01 to stop datacollection, any other number to keep data collection)
- * 0x22 = identification register (the unique identifier of this slave)
+ * 0x01 -> 0x02 = A0 register (register for strain0)
+ * 0x03 -> 0x04 = A1 register (register for strain1)
+ * 0x05 -> 0x06 = A2 register (register for strain2)
+ * 0x07 -> 0x08 = A3 register (register for strain3)
+ * 0x09 -> 0x0A = A4 register (register for strain4)
+ * 0x0B -> 0x0C = A5 register (register for strain5)
+ * 0x0D -> 0x0E = A6 register (register for strain6)
+ * 0x1F -> 0x10 = A7 register (register for strain7)
+ * 0x11 = command register (used for commands from master) (0x01 to stop datacollection, any other number to keep data collection)
+ * 0x12 = identification register (the unique identifier of this slave)
  */
 
  //Definitions
 #define SLAVE_ADDRESS 0x29 //The slave address (0x01 -> 0x7F)
-#define REGISTER_SIZE 35 //The size of the register
+#define REGISTER_SIZE 19 //The size of the register
 #define MAXIMUM_BYTES_SENT 2 //The maximum number of bytes sent from the master to the slave
 #define INTERRUPT_PIN 2
 #define IDENTIFICATION 0x0D //the identification number of this device
@@ -36,14 +36,14 @@ byte arrayIndex = 1; //the array index used to write bytes
 byte zero9Data; //the data represented in the 0x09 register
 
 //Strain measurements
-unsigned int strain0 = 0; //for A1
-unsigned int strain1 = 0; //for A2
-unsigned int strain2 = 0; //for A3
-unsigned int strain3 = 0; //for A4
-unsigned int strain4 = 0; //for A5
-unsigned int strain5 = 0; //for A6
-unsigned int strain6 = 0; //for A7
-unsigned int strain7 = 0; //for A8
+unsigned short strain0 = 0; //for A1
+unsigned short strain1 = 0; //for A2
+unsigned short strain2 = 0; //for A3
+unsigned short strain3 = 0; //for A4
+unsigned short strain4 = 0; //for A5
+unsigned short strain5 = 0; //for A6
+unsigned short strain6 = 0; //for A7
+unsigned short strain7 = 0; //for A8
 
 //flag variables
 byte useInterrupt = 1;
@@ -80,7 +80,7 @@ void setup() {
   Wire.onRequest(requestEvent);
   Wire.onReceive(receiveEvent);
   //set identifier 
-  registerMap[34] = IDENTIFICATION;
+  registerMap[18] = IDENTIFICATION;
   registerMapBuffer[0] = 0x01;
 }
 
@@ -154,11 +154,16 @@ void storeData()
   reverseStoreBytes(strain7);
 
   //once done, set arrayIndex to 1
+  Serial.println("Strain0:");
   Serial.println(strain0);
+  Serial.println("Status:");
+  Serial.println(registerMapBuffer[0]);
+  Serial.println("A0:");
   Serial.println(registerMapBuffer[1]);
   Serial.println(registerMapBuffer[2]);
-  Serial.println(registerMapBuffer[3]);
-  Serial.println(registerMapBuffer[4]);
+  Serial.println("ID");
+  Serial.println(registerMap[18]);
+  Serial.println();
   arrayIndex = 1;
 }
 
@@ -167,12 +172,12 @@ void storeData()
  * map buffer. Stores the bytes in reverse order because
  * that is industry standard for some reason 
  */
-void reverseStoreBytes(unsigned int data)
+void reverseStoreBytes(unsigned short data)
 {
-  //store integers into 4 bytes in the register (reverse order)
+  //store shorts into 2 bytes in the register (reverse order)
   byte* pointer;
   pointer = (byte*)&data;
-  for(int i = 3; i > -1; i--)
+  for(int i = 1; i > -1; i--)
   {
     registerMapBuffer[arrayIndex] = pointer[i];
     arrayIndex++;
